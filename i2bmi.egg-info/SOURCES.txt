@@ -1,0 +1,9 @@
+README.rst
+setup.py
+i2bmi/__init__.py
+i2bmi/utils.py
+i2bmi.egg-info/PKG-INFO
+i2bmi.egg-info/SOURCES.txt
+i2bmi.egg-info/dependency_links.txt
+i2bmi.egg-info/requires.txt
+i2bmi.egg-info/top_level.txt
