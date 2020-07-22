@@ -2,7 +2,4 @@ pandas
 scikit-learn
 numpy
 scipy
-os
-sys
 matplotlib
-time
