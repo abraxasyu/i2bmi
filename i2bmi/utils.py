@@ -845,7 +845,7 @@ def assign_comorbidities(df,column_code,column_version,columns_id):
     elix_score = _df.loc[_df['Elixhauser'].notnull(),columns_id+['Elixhauser']+[i for i in _df if '(Elixhauser) ' in i]].drop_duplicates().drop(['Elixhauser'],axis=1).groupby(columns_id).sum()
     elix_wide = elix_score.merge(elix_onehot,how='outer',left_index=True,right_index=True)
     
-    ret = _df.loc[:,columns_id].merge(elix_wide,how='left',left_on=columns_id,right_index=True)
+    ret = _df.loc[:,columns_id].drop_duplicates().merge(elix_wide,how='left',left_on=columns_id,right_index=True)
     ret.loc[:,elix_onehot.columns] = ret.loc[:,elix_onehot.columns].fillna(False)
     ret.loc[:,elix_score.columns] = ret.loc[:,elix_score.columns].fillna(0)
     
