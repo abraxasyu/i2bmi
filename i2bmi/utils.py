@@ -861,8 +861,61 @@ def assign_comorbidities(df,column_code,column_version,columns_id):
     
     return _df,ret
 
+def performance_metrics(y_true,y_score):
+    """
+    Generate performance metrics dataframe with threshold as index
+    
+    Parameters
+    ----------
+    y_true: list-like or pandas.Series
+        true y labels
+    y_score: list-like or pandas.Series
+        predicted probability
+        
+    Returns
+    -------
+    pd.DataFrame
+        performance_metrics dataframe
+        
+    Examples
+    --------
+    >>> performance_metrics(y_train,y_train_pred)
+        
+    """
+    FP,TP,thres = sklearn.metrics._ranking._binary_clf_curve(y_true,y_score)
+    ret = pd.DataFrame([TP,FP,thres],index=['TP','FP','thres']).T
+    ret = ret.set_index('thres').sort_index()
+    
+    # add 0 and 1 to the thresholds to fill out the full range of threshold values
+    ret = ret.reindex(list(ret.index)+[i for i in [0,1] if i not in ret.index])
+    
+    # add TP & FP at min and max threshold values
+    ret.at[0,'TP']=ret['TP'].max()
+    ret.at[0,'FP']=ret['FP'].max()
+    ret.at[1,'TP']=0
+    ret.at[1,'FP']=0
 
+    ret = ret.sort_index()
 
+    # based on TP and FP, find FN and TN
+    ret['FN'] = ret['TP'].max()-ret['TP']
+    ret['TN'] = ret['FP'].max()-ret['FP']
+
+    # identify the rest of the confusion matrix based performance matrix, grouped by synonyms
+    ret['Recall'] =      ret['TP']/(ret['TP']+ret['FN'])
+    ret['Sensitivity'] = ret['Recall']
+    ret['TPR'] = ret['Recall']
+    
+    ret['FPR'] = ret['FP']/(ret['TN']+ret['FP'])
+    
+    ret['Specificity'] = ret['TN']/(ret['TN']+ret['FP'])
+    ret['TNR'] =         ret['Specificity']
+    
+    ret['Precision'] = (ret['TP']/(ret['TP']+ret['FP'])).fillna(1)
+    ret['PPV'] =       ret['Precision']
+
+    ret['F1'] = (2*ret['Precision']*ret['Recall'])/(ret['Precision']+ret['Recall'])
+    return ret
 
 
 def plot_roc(y_true,y_score,figpath=None):
