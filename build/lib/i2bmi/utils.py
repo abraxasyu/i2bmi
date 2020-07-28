@@ -414,7 +414,7 @@ def boxcox(df,invert=None):
     else:
         transformation={}
         for col in _df.select_dtypes('number'):
-            transformation[col]={'min':_df[col].min()-_df[col].std()}
+            transformation[col]={'min':_df[col].min()-_df[col].std()/1000}
             _df[col]-=transformation[col]['min']
             col_transformed,lmbda = scipy.stats.boxcox(_df.loc[_df[col].notnull(),col])
             transformation[col]['lmbda'] = lmbda
@@ -916,7 +916,6 @@ def performance_metrics(y_true,y_score):
 
     ret['F1'] = (2*ret['Precision']*ret['Recall'])/(ret['Precision']+ret['Recall'])
     return ret
-
 
 def plot_roc(y_true,y_score,figpath=None):
     """
