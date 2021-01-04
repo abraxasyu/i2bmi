@@ -755,7 +755,7 @@ def _elixhauser():
         },
     }
 
-def assign_comorbidities(df,column_code,column_version,columns_id):
+def assign_comorbidities(df,column_code,column_version,columns_id,verbose=False):
     """
     Assign elixhauser/charlson comorbidity and comorbidity scores from diagnosis dataframe
     
@@ -790,76 +790,75 @@ def assign_comorbidities(df,column_code,column_version,columns_id):
     if type(column_version)==int:
         _df['VERSION']=column_version
         column_version='VERSION'
+    _df[column_version] = pd.to_numeric(_df[column_version])
     
     # generate mapping file
-    diagmap = _df.loc[:,[column_code,column_version]].drop_duplicates()
+    diagmap = _df.groupby([column_code,column_version]).size().reset_index(name='freq')
     _column_code='{}_SANSDOT'.format(column_code)
-    diagmap[_column_code] = diagmap[column_code].str.strip('. ')
-    
+    diagmap[_column_code] = diagmap[column_code].str.replace('.','')
     
     ComorbiditySystems = {'Elixhauser':_elixhauser(),'Charlson':_charlson()}
+    newcols=[]
     for ComorbiditySystem in ComorbiditySystems:
         for comorbidity in ComorbiditySystems[ComorbiditySystem]:
             curtime=time.time()
-            print('Processing: {:>10}, {:>41}...'.format(ComorbiditySystem, comorbidity[:40]),end='')
+            if verbose:
+                print('Processing: {:>10}, {:>31}...'.format(ComorbiditySystem, comorbidity[:30]),end='')
             idxs=[]
             for version in [9,10]:
                 for criteria in ComorbiditySystems[ComorbiditySystem][comorbidity][version]:
                     # assume no dot
-                    _criteria = criteria.strip('.')
+                    _criteria = criteria.replace('.','')
                     # interval
                     if '-' in _criteria:
                         former = _criteria.split('-')[0]
                         latter = _criteria.split('-')[1]
-                        former = former.replace('.x','')
-                        latter = latter.replace('.x','~')
+                        former = former.replace('x','')
+                        latter = latter.replace('x','')
+                        latter += '~'
 
                         idx = (diagmap[column_version]==version) & (diagmap[_column_code]>=former) & (diagmap[_column_code]<=latter)
                         idxs.append(idx)
 
                     # single
                     else:
-                        _criteria = _criteria.replace('.x','')
+                        _criteria = _criteria.replace('x','')
                         idx = (diagmap[column_version]==version) & (diagmap[_column_code].str.startswith(_criteria))
                         idxs.append(idx)
             # merge all indices and find if any applies            
             idx = pd.concat(idxs,axis=1).any(axis=1)
-
-            scores = [i for i in ComorbiditySystems[ComorbiditySystem][comorbidity] if i not in [9,10]]
-            newcols = [ComorbiditySystem]+['({}) {}'.format(ComorbiditySystem,i) for i in scores]
-
-            # if the comorbidity or comorbidity score columns do not exist, add them
-            for newcol in newcols:
-                if newcol not in diagmap:
-                    diagmap[newcol]=np.nan
-
-            diagmap.loc[idx,newcols] = (comorbidity,*[ComorbiditySystems[ComorbiditySystem][comorbidity][i] for i in scores])
-
-            print(' Complete! ({:5.1f}s), {:>6,} unique codes found'.format(time.time()-curtime,idx.sum()))
+            
+            # add comorbiditysystem/comorbidity specific columns
+            newcolname='({}) {}'.format(ComorbiditySystem,comorbidity)
+            diagmap[newcolname]=False
+            diagmap.loc[idx,newcolname]=True
+            newcols.append(newcolname)
+            
+            if verbose:
+                print(' Complete! ({:5.1f}s), {:>6,} unique codes found, {:>8,} total codes found'.format(time.time()-curtime,idx.sum(),diagmap.loc[idx,'freq'].sum()))
     
-    _df = _df.merge(diagmap.drop(_column_code,axis=1),how='left',on=[column_code,column_version])
+        
+    _long = _df.merge(diagmap.drop(['freq',_column_code],axis=1),how='left',on=[column_code,column_version])
     
-    # handle elixhauser
-    elix_onehot = _df.groupby(columns_id+['Elixhauser']).size().unstack()>=1
-    elix_onehot.columns = ['({}) {}'.format('Elixhauser',i) for i in elix_onehot.columns]
-    elix_score = _df.loc[_df['Elixhauser'].notnull(),columns_id+['Elixhauser']+[i for i in _df if '(Elixhauser) ' in i]].drop_duplicates().drop(['Elixhauser'],axis=1).groupby(columns_id).sum()
-    elix_wide = elix_score.merge(elix_onehot,how='outer',left_index=True,right_index=True)
+    _wide = _long.copy()
+    _wide = _wide.loc[:,columns_id+newcols].groupby(columns_id).any()
     
-    ret = _df.loc[:,columns_id].drop_duplicates().merge(elix_wide,how='left',left_on=columns_id,right_index=True)
-    ret.loc[:,elix_onehot.columns] = ret.loc[:,elix_onehot.columns].fillna(False)
-    ret.loc[:,elix_score.columns] = ret.loc[:,elix_score.columns].fillna(0)
+    ComorbidityScores={}
+    for ComorbiditySystem in ComorbiditySystems:
+        for comorbidity in ComorbiditySystems[ComorbiditySystem]:
+            for ScoringSystem in (i for i in ComorbiditySystems[ComorbiditySystem][comorbidity] if i not in [9,10]):
+                if ComorbiditySystem not in ComorbidityScores:
+                    ComorbidityScores[ComorbiditySystem]={}
+                if ScoringSystem not in ComorbidityScores[ComorbiditySystem]:
+                    ComorbidityScores[ComorbiditySystem][ScoringSystem]={}
+                ComorbidityScores[ComorbiditySystem][ScoringSystem]['({}) {}'.format(ComorbiditySystem,comorbidity)] = ComorbiditySystems[ComorbiditySystem][comorbidity][ScoringSystem]
+    for ComorbiditySystem in ComorbidityScores:
+        for ScoringSystem in ComorbidityScores[ComorbiditySystem]:
+            ComorbidityScores[ComorbiditySystem][ScoringSystem] = pd.Series(ComorbidityScores[ComorbiditySystem][ScoringSystem])
+            _wide['({}) {}'.format(ComorbiditySystem,ScoringSystem)] = _wide.loc[:,ComorbidityScores[ComorbiditySystem][ScoringSystem].index].multiply(ComorbidityScores[ComorbiditySystem][ScoringSystem],axis=1).sum(axis=1)
     
-    # handle Charlson
-    charlson_onehot = _df.groupby(columns_id+['Charlson']).size().unstack()>=1
-    charlson_onehot.columns = ['({}) {}'.format('Charlson',i) for i in charlson_onehot.columns]
-    charlson_score = _df.loc[_df['Charlson'].notnull(),columns_id+['Charlson']+[i for i in _df if '(Charlson) ' in i]].drop_duplicates().drop(['Charlson'],axis=1).groupby(columns_id).sum()
-    charlson_wide = charlson_score.merge(charlson_onehot,how='outer',left_index=True,right_index=True)
     
-    ret = ret.merge(charlson_wide,how='left',left_on=columns_id,right_index=True)
-    ret.loc[:,charlson_onehot.columns] = ret.loc[:,charlson_onehot.columns].fillna(False)
-    ret.loc[:,charlson_score.columns] = ret.loc[:,charlson_score.columns].fillna(0)
-    
-    return _df,ret
+    return _long,_wide.reset_index()
 
 def performance_metrics(y_true,y_score):
     """

@@ -8,7 +8,7 @@ with open("requirements.txt") as handle:
 
 setuptools.setup(
     name="i2bmi",
-    version="0.2.4",
+    version="0.2.5",
     install_requires = dependencies,
     packages=setuptools.find_packages(),
 )
